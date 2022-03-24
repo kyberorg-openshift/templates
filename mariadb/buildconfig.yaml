@@ -1,0 +1,17 @@
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: mariadb-bc
+spec:
+  strategy:
+    type: Docker
+  source:
+    type: Git
+    git:
+      uri: "https://github.com/kyberorg-openshift/templates.git"
+      ref: trunk
+    contextDir: mariadb/docker
+  output:
+    to:
+      kind: ImageStreamTag
+      name: docker-mariadb:10.7
