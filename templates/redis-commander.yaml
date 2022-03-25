@@ -1,0 +1,180 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+labels:
+  template: redis-commander
+message: |-
+  The following service(s) have been created in your project: ${REDCOM_SERVICE_NAME}.
+
+   Connection URL: https://${REDCOM_ROUTE}/
+
+  For more information about using this template, see https://github.com/kyberorg-openshift/templates/blob/trunk/README.md.
+metadata:
+  annotations:
+    description: |-
+      RedisCommander is Web UI for Redis. 
+      For more information about using this template, see https://github.com/kyberorg-openshift/templates/blob/trunk/README.md.
+    iconClass: icon-openstack
+    openshift.io/display-name: RedisCommander
+    openshift.io/documentation-url: https://github.com/kyberorg-openshift/templates/blob/trunk/README.md
+    openshift.io/long-description: This template provides a RedisCommander application.
+    openshift.io/provider-display-name: Kyberorg
+    openshift.io/support-url: https://github.com/kyberorg-openshift/templates/issues
+    samples.operator.openshift.io/version: 4.10.3
+    tags: application,web,redis
+  creationTimestamp: "2022-03-24T09:19:39Z"
+  labels:
+    samples.operator.openshift.io/managed: "false"
+    sno.kyberorg.io/created-by: "kyberorg"
+  name: redis-commander
+  namespace: openshift
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: ${REDCOM_SERVICE_NAME}
+    stringData:
+      http-user: ${REDCOM_HTTP_USER}
+      http-password: ${REDCOM_HTTP_PASSWORD}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      annotations:
+        template.openshift.io/expose-uri: https://{.spec.clusterIP}:{.spec.ports[?(.name=="pma")].port}
+      name: ${REDCOM_SERVICE_NAME}
+    spec:
+      ports:
+        - name: redcom-8081
+          nodePort: 0
+          port: 8081
+          protocol: TCP
+          targetPort: 8081
+      selector:
+        name: ${REDCOM_SERVICE_NAME}
+      sessionAffinity: None
+      type: ClusterIP
+    status:
+      loadBalancer: {}
+  - apiVersion: v1
+    kind: Route
+    metadata:
+      name: ${REDCOM_SERVICE_NAME}
+      annotations:
+        kubernetes.io/tls-acme: 'true'
+    spec:
+      host: ${REDCOM_ROUTE}
+      to:
+        kind: Service
+        name: ${REDCOM_SERVICE_NAME}
+      port:
+        targetPort: redcom-8081
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+  - apiVersion: apps.openshift.io/v1
+    kind: DeploymentConfig
+    metadata:
+      annotations:
+        template.alpha.openshift.io/wait-for-ready: "true"
+      name: ${REDCOM_SERVICE_NAME}
+      labels:
+        app.openshift.io/runtime: openstack
+    spec:
+      replicas: 1
+      selector:
+        name: ${REDCOM_SERVICE_NAME}
+      strategy:
+        type: Recreate
+      template:
+        metadata:
+          labels:
+            name: ${REDCOM_SERVICE_NAME}
+        spec:
+          containers:
+            - capabilities: {}
+              env:
+                - name: HTTP_USER
+                  valueFrom:
+                    secretKeyRef:
+                      key: http-user
+                      name: ${REDCOM_SERVICE_NAME}
+                - name: HTTP_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: http-password
+                      name: ${REDCOM_SERVICE_NAME}
+                - name: REDIS_HOST
+                  value: ${REDIS_SERVICE_NAME}
+                - name: REDIS_PORT
+                  value: '6379'
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: database-password
+                      name: ${REDIS_SERVICE_NAME}
+                - name: VIEW_JSON_DEFAULT
+                  value: all
+              image: ' '
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                initialDelaySeconds: 30
+                tcpSocket:
+                  port: 8081
+                timeoutSeconds: 1
+              name: redcom
+              ports:
+                - containerPort: 8081
+                  protocol: TCP
+              resources:
+                limits:
+                  memory: ${MEMORY_LIMIT}
+              securityContext:
+                capabilities: {}
+                privileged: false
+              terminationMessagePath: /dev/termination-log
+
+          dnsPolicy: ClusterFirst
+          restartPolicy: Always
+      triggers:
+        - imageChangeParams:
+            automatic: true
+            containerNames:
+              - redcom
+            from:
+              kind: ImageStreamTag
+              name: redis-commander:latest
+              namespace: openshift
+            lastTriggeredImage: ""
+          type: ImageChange
+        - type: ConfigChange
+    status: {}
+parameters:
+  - name: REDCOM_SERVICE_NAME
+    required: true
+    value: redcom
+    description: The name of the OpenShift Service
+    displayName: Redis Commander Service Name
+  - name: REDIS_SERVICE_NAME
+    required: true
+    value: redis
+    description: Existing Redis service name. Typically redis
+    displayName: Redis Service name
+  - name: REDCOM_ROUTE
+    value: 'NAMESPACE.rediska.kyberorg.io'
+    description: Public hostname for the route. If not specified, a hostname is generated.
+    displayName: Public Hostname
+  - name: REDCOM_HTTP_USER
+    from: user[a-zA-Z0-9]{3}
+    generate: expression
+    description: User to access Redis Commander with
+    displayName: WebUI User
+  - name: REDCOM_HTTP_PASSWORD
+    from: '[a-zA-Z0-9]{9}'
+    generate: expression
+    description: Password of Web User
+    displayName: WebUI Password
+  - name: MEMORY_LIMIT
+    required: true
+    value: 512Mi
+    description: Maximum amount of memory the container can use.
+    displayName: Memory Limit
+
