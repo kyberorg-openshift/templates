@@ -184,6 +184,7 @@ parameters:
     description: Existing MySQL/MariaDB service name. Typically mysql or mariadb.
     displayName: Database (MySQL/MariaDB) Service name
   - name: PMA_ROUTE
+    value: 'NAMESPACE.skotobaza.kyberorg.io'
     description: Public hostname for the route. If not specified, a hostname is generated.
     displayName: Public Hostname
   - name: MEMORY_LIMIT
