@@ -1,0 +1,193 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+labels:
+  template: pma
+message: |-
+  The following service(s) have been created in your project: ${PMA_SERVICE_NAME}.
+
+   Connection URL: https://${PMA_ROUTE}/
+
+  For more information about using this template, see https://github.com/kyberorg-openshift/templates/blob/trunk/README.md.
+metadata:
+  annotations:
+    description: |-
+      PhpMyAdmin is Web UI for MySQL and MariaDB. 
+      For more information about using this template, see https://github.com/kyberorg-openshift/templates/blob/trunk/README.md.
+    iconClass: icon-php
+    openshift.io/display-name: PhpMyAdmin (PMA)
+    openshift.io/documentation-url: https://github.com/kyberorg-openshift/templates/blob/trunk/README.md
+    openshift.io/long-description: This template provides a PhpMyAdmin application.
+    openshift.io/provider-display-name: Kyberorg
+    openshift.io/support-url: https://github.com/kyberorg-openshift/templates/issues
+    samples.operator.openshift.io/version: 4.10.3
+    tags: application, web
+  creationTimestamp: "2022-03-24T09:19:39Z"
+  labels:
+    samples.operator.openshift.io/managed: "false"
+    sno.kyberorg.io/created-by: "kyberorg"
+  name: pma
+  namespace: openshift
+objects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: ${PMA_SERVICE_NAME}
+    data:
+      config.inc.php: |-
+        <?php
+        /* Server configuration */
+        
+        $cfg['Servers'][1]['host'] = getenv("MYSQL_SERVICE_NAME");
+        $cfg['Servers'][1]['port'] = 3306;
+        $cfg['Servers'][1]['socket'] = '';
+        $cfg['Servers'][1]['auth_type'] = 'config';
+        $cfg['Servers'][1]['user'] = getenv("MYSQL_USER");
+        $cfg['Servers'][1]['password'] = getenv("MYSQL_PASS");
+        
+        /* End of servers configuration */
+        
+        $cfg['DefaultLang'] = 'en';
+        $cfg['ServerDefault'] = 1;
+        $cfg['UploadDir'] = '';
+        $cfg['SaveDir'] = '';
+        ?>
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      annotations:
+        template.openshift.io/expose-uri: https://{.spec.clusterIP}:{.spec.ports[?(.name=="pma")].port}
+      name: ${PMA_SERVICE_NAME}
+    spec:
+      ports:
+        - name: pma-8080
+          nodePort: 0
+          port: 8080
+          protocol: TCP
+          targetPort: 8080
+        - name: pma-8443
+          nodePort: 0
+          port: 8443
+          protocol: TCP
+          targetPort: 8443
+      selector:
+        name: ${PMA_SERVICE_NAME}
+      sessionAffinity: None
+      type: ClusterIP
+    status:
+      loadBalancer: {}
+  - apiVersion: v1
+    kind: Route
+    metadata:
+      name: ${PMA_SERVICE_NAME}
+      annotations:
+        kubernetes.io/tls-acme: 'true'
+    spec:
+      host: ${PMA_ROUTE}
+      to:
+        kind: Service
+        name: ${PMA_SERVICE_NAME}
+      port:
+        targetPort: pma-8080
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+  - apiVersion: apps.openshift.io/v1
+    kind: DeploymentConfig
+    metadata:
+      annotations:
+        template.alpha.openshift.io/wait-for-ready: "true"
+      name: ${PMA_SERVICE_NAME}
+      labels:
+        app.openshift.io/runtime: php
+    spec:
+      replicas: 1
+      selector:
+        name: ${PMA_SERVICE_NAME}
+      strategy:
+        type: Recreate
+      template:
+        metadata:
+          labels:
+            name: ${PMA_SERVICE_NAME}
+        spec:
+          containers:
+            - capabilities: {}
+              env:
+                - name: MYSQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      key: database-user
+                      name: ${MYSQL_SERVICE_NAME}
+                - name: MYSQL_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      key: database-password
+                      name: ${MYSQL_SERVICE_NAME}
+                - name: MYSQL_SERVICE_NAME
+                  value: ${MYSQL_SERVICE_NAME}
+              image: ' '
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                initialDelaySeconds: 30
+                tcpSocket:
+                  port: 8443
+                timeoutSeconds: 1
+              name: pma
+              ports:
+                - containerPort: 8080
+                  protocol: TCP
+                - containerPort: 8443
+                  protocol: TCP
+              resources:
+                limits:
+                  memory: ${MEMORY_LIMIT}
+              securityContext:
+                capabilities: {}
+                privileged: false
+              terminationMessagePath: /dev/termination-log
+              volumeMounts:
+                - mountPath: /opt/app-root/src/config.inc.php
+                  name: ${PMA_SERVICE_NAME}-config-volume
+                  subPath: config.inc.php
+          dnsPolicy: ClusterFirst
+          restartPolicy: Always
+          volumes:
+            - name: ${PMA_SERVICE_NAME}-config-volume
+              configMap:
+                name: ${PMA_SERVICE_NAME}
+                defaultMode: 420
+                items:
+                  - key: config.inc.php
+                    path: config.inc.php
+      triggers:
+        - imageChangeParams:
+            automatic: true
+            containerNames:
+              - pma
+            from:
+              kind: ImageStreamTag
+              name: pma:bitnami
+              namespace: openshift
+            lastTriggeredImage: ""
+          type: ImageChange
+        - type: ConfigChange
+    status: {}
+parameters:
+  - name: PMA_SERVICE_NAME
+    required: true
+    value: pma
+    description: The name of the OpenShift Service
+    displayName: PMA Service Name
+  - name: MYSQL_SERVICE_NAME
+    required: true
+    value: mariadb
+    description: Existing MySQL/MariaDB service name. Typically mysql or mariadb.
+    displayName: Database (MySQL/MariaDB) Service name
+  - name: PMA_ROUTE
+    description: Public hostname for the route. If not specified, a hostname is generated.
+    displayName: Public Hostname
+  - name: MEMORY_LIMIT
+    required: true
+    value: 512Mi
+    description: Maximum amount of memory the container can use.
+    displayName: Memory Limit
